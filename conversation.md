@@ -790,3 +790,221 @@ Add this conversation to conversation.md
 **Assistant — progress update:**
 
 I’ll append this conversation to `conversation.md`, preserving the existing transcript.
+
+---
+
+## Database setup walkthrough — November 22, 2026
+
+**User:**
+
+based on the conversation.md what should I work on next
+
+**Assistant — progress update:**
+
+I’m using the using-superpowers skill to guide the review. I’ll read `conversation.md` and identify the most useful next step from where it leaves off.
+
+**Assistant:**
+
+Work on [backend/src/config/db.js](/home/carlf/CleanSlate/backend/src/config/db.js) next.
+
+The conversation leaves off after the error handler, with **database setup next**. Your current `app.js` also has the error handler connected and the temporary test route removed.
+
+In `db.js`, you’ll learn how to:
+
+1. Open a SQLite database.
+2. Create an appointments table to store booking times, addresses, job descriptions, and contact information.
+3. Export the database connection so other backend files can use it.
+
+This gives your app a way to keep appointments after the server restarts.
+
+**User:**
+
+walk me through it
+
+**Assistant — progress update:**
+
+I’ll check `db.js` and the saved design so the walkthrough fits your project. I’ll explain the code for you to enter, as we did with the other backend files.
+
+**Assistant:**
+
+**`backend/src/config/db.js` opens your database and creates the table that will hold appointments.** SQLite stores the data in a local file, so bookings remain saved when the server restarts.
+
+Your file is empty. We’ll fill it in piece by piece.
+
+### 1. Import the tools
+
+Start with:
+
+```js
+import { DatabaseSync } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+```
+
+Both imports come from Node.js itself, so you don’t need another `npm install`.
+
+- **`DatabaseSync`** opens a SQLite database and lets us run database commands.
+- **`mkdirSync`** creates a folder.
+
+The braces mean we’re importing specific named exports. `Sync` means each operation finishes before Node continues to the next statement. That keeps this initial setup straightforward.
+
+### 2. Create a folder for the database
+
+Add:
+
+```js
+const dataDirectory = new URL("../../data/", import.meta.url);
+
+mkdirSync(dataDirectory, { recursive: true });
+```
+
+Let’s unpack the first line:
+
+- **`import.meta.url`** identifies the location of this file, `db.js`.
+- **`../../data/`** goes up two folders—from `config` to `src`, then to `backend`—and selects `data`.
+- **`new URL(...)`** combines those into a location.
+
+The result points to:
+
+```text
+backend/data/
+```
+
+Using this file’s location keeps the path consistent regardless of which folder you run Node from.
+
+`mkdirSync()` creates that folder. The option **`recursive: true`** also creates missing parent folders and allows the folder to exist already.
+
+### 3. Open the database
+
+Next, add:
+
+```js
+const databaseFile = new URL("appointments.sqlite", dataDirectory);
+
+const db = new DatabaseSync(databaseFile);
+```
+
+This opens:
+
+```text
+backend/data/appointments.sqlite
+```
+
+SQLite creates the file if it doesn’t exist. If it already exists, SQLite opens the saved database.
+
+`db` is the connection we’ll use to read and write appointment information.
+
+### 4. Create the appointments table
+
+Add:
+
+```js
+db.exec(`
+  CREATE TABLE IF NOT EXISTS appointments (
+    id INTEGER PRIMARY KEY,
+    starts_at INTEGER NOT NULL,
+    ends_at INTEGER NOT NULL,
+    address TEXT NOT NULL,
+    job_description TEXT NOT NULL,
+    email TEXT,
+    phone TEXT,
+    CHECK (ends_at > starts_at),
+    CHECK (
+      length(trim(coalesce(email, ''))) > 0
+      OR length(trim(coalesce(phone, ''))) > 0
+    )
+  );
+`);
+```
+
+This is **SQL**, the language used to work with the database. The backticks let us write a JavaScript string across several lines. `db.exec()` executes that string as SQL.
+
+**`CREATE TABLE IF NOT EXISTS appointments`** creates a table named `appointments` only if it doesn’t already exist. A table holds records called **rows**; each row will represent one appointment.
+
+The columns are:
+
+| Column | What it stores |
+|---|---|
+| `id` | A unique number identifying the appointment. |
+| `starts_at` | The appointment’s starting timestamp. |
+| `ends_at` | Its ending timestamp. |
+| `address` | Where the job takes place. |
+| `job_description` | What the client needs done. |
+| `email` | An optional email address. |
+| `phone` | An optional phone number. |
+
+A few SQL terms matter here:
+
+- **`INTEGER`** stores a whole number.
+- **`TEXT`** stores a string.
+- **`PRIMARY KEY`** uniquely identifies each row. SQLite can generate this integer ID when we insert an appointment.
+- **`NOT NULL`** requires a value. It doesn’t prevent an empty string; we’ll validate the submitted text separately.
+
+We’ll store the timestamps as **milliseconds since January 1, 1970 UTC**. Later, Luxon will convert the client’s selected Central Time into that format.
+
+The first `CHECK` requires the end to come after the start:
+
+```sql
+CHECK (ends_at > starts_at)
+```
+
+The second requires at least one contact method:
+
+```sql
+CHECK (
+  length(trim(coalesce(email, ''))) > 0
+  OR length(trim(coalesce(phone, ''))) > 0
+)
+```
+
+Working from the inside out:
+
+1. `coalesce(email, '')` substitutes an empty string if email is `NULL`, meaning missing.
+2. `trim(...)` removes surrounding spaces.
+3. `length(...) > 0` checks that something remains.
+4. `OR` allows either email or phone—or both.
+
+This checks that contact information is present. We’ll check its format later.
+
+**Four-hour duration, business hours, and overlapping bookings still need enforcement in the booking logic.** This table is the storage foundation.
+
+### 5. Export the connection
+
+Finish with:
+
+```js
+export default db;
+```
+
+Other backend files can then import this connection to access appointments.
+
+### 6. Check your work
+
+Save the file, then run this from your `backend` folder:
+
+```bash
+node --input-type=module -e "import db from './src/config/db.js'; console.log(db.prepare('SELECT * FROM appointments').all()); db.close();"
+```
+
+That command imports your file, reads the table, prints its rows, and closes the connection. Initially, expect:
+
+```text
+[]
+```
+
+That means the table exists and contains no appointments. I checked the table creation SQL in a temporary in-memory database successfully.
+
+Also add this line to `backend/.gitignore`:
+
+```gitignore
+data/
+```
+
+That keeps the local database, which will eventually contain client details, out of Git.
+
+**User:**
+
+add this conversation to conversation.md
+
+**Assistant — progress update:**
+
+I’ll append this exchange to `conversation.md`, preserving the existing transcript.
