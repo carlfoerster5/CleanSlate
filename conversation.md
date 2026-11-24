@@ -1008,3 +1008,148 @@ add this conversation to conversation.md
 **Assistant — progress update:**
 
 I’ll append this exchange to `conversation.md`, preserving the existing transcript.
+
+---
+
+## Availability business logic — November 23, 2026
+
+**User:**
+
+do you remember the last conversation about availability.js
+
+**Assistant — progress update:**
+
+I’m using the conversation-context guidance to check what’s available in this chat.
+
+**Assistant:**
+
+I don’t see the previous conversation about `availability.js` in this chat. Remind me what we discussed, or paste the relevant part, and I’ll pick up from there.
+
+**User:**
+
+you walked me through the business logic for a file that will answer which appointment times are still avalable on this date
+
+**Assistant:**
+
+That helps restore the context: `availability.js` determines which appointment times are still available on a given date.
+
+The basic logic is to get that date’s business hours, generate possible appointment slots, then exclude slots that overlap existing bookings or blocked time, accounting for appointment duration and any buffers.
+
+I don’t have our earlier specifics. Share the file, and I can walk through its exact rules with you.
+
+**User:**
+
+```js
+import { DateTime } from "luxon";
+import db from "../config/db.js";
+
+const TIME_ZONE = "America/Chicago"
+const FIRST_START_HOUR = 8;
+const LAST_START_HOUR = 14;
+const APPOINTMENT_HOURS = 4;
+
+const findOverlap = db.prepare(`
+  SELECT id
+  FROM appointments
+  WHERE starts_at < ?
+    AND ends_at > ?
+  LIMIT 1
+`);
+
+export default function getAvailableSlots(date) {
+  if (
+    typeof date !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date)
+  ) {
+    throw new Error("Date must use YYYY-MM-DD format.");
+  }
+
+  const day = DateTime.fromISO(date, {
+    zone: TIME_ZONE,
+    locale: "en-US"
+  });
+
+  if (!day.isValid) {
+    throw new Error("Please provide a valid calendar date.");
+  }
+
+  if (day.weekday > 5) {
+    return [];
+  }
+
+  const now = DateTime.now().toMillis();
+  const availableSlots = [];
+
+  for (
+    let hour = FIRST_START_HOUR;
+    hour <= LAST_START_HOUR;
+    hour++
+  ) {
+    const start = day.set({
+      hour,
+      minute: 0,
+      second: 0,
+      millisecond: 0
+    });
+
+    const end = start.plus({ hours: APPOINTMENT_HOURS });
+
+    const startsAt = start.toMillis();
+    const endsAt = end.toMillis();
+
+    if (startsAt <= now) {
+      continue;
+    }
+
+    const overlap = findOverlap.get(endsAt, startsAt);
+
+    if (overlap) {
+      continue;
+    }
+
+    availableSlots.push({
+      startsAt,
+      endsAt,
+      label: start.toFormat("h:mm a")
+    });
+  }
+
+  return availableSlots;
+}
+```
+
+**Assistant:**
+
+Yes—this gives us the exact business logic for `availability.js`.
+
+For a requested date, it:
+
+1. **Validates the date:** requires a string in `YYYY-MM-DD` format and a real calendar date.
+2. **Uses Chicago time:** interprets the date in `America/Chicago`.
+3. **Excludes weekends:** Saturday and Sunday return an empty array.
+4. **Checks seven possible start times:** every hour from **8 AM through 2 PM**, inclusive.
+5. **Makes each appointment four hours long:** the latest possible appointment runs **2–6 PM**.
+6. **Excludes starts at or before the current time.**
+7. **Excludes appointments that overlap an existing booking.**
+8. **Returns available slots** with start/end Unix timestamps in milliseconds and a label such as `"8:00 AM"`.
+
+The overlap rule is the key:
+
+```sql
+WHERE starts_at < candidate_end
+  AND ends_at > candidate_start
+```
+
+An existing appointment overlaps when it starts before the proposed appointment ends **and** ends after the proposed appointment starts. Appointments can touch at their boundaries: one ending at noon allows another to start at noon.
+
+For example, an existing **10 AM–2 PM** appointment blocks every candidate start from **8 AM through 1 PM**. The **2 PM–6 PM** slot remains available, assuming it’s in the future and there are no other bookings.
+
+Two assumptions matter: your database timestamps must also use **milliseconds**, and every appointment blocks the same shared calendar because the query has no employee, room, or resource filter.
+
+**User:**
+
+add this conversation to conversation.md
+
+**Assistant — progress update:**
+
+I’ll add this discussion to `conversation.md`, preserving any existing content.
